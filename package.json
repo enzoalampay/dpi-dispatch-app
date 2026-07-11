@@ -16,7 +16,6 @@
     "seed": "node prisma/seed.js"
   },
   "dependencies": {
-    "@netlify/database": "^1.1.0",
     "@prisma/client": "^6.2.1",
     "next": "^15.1.4",
     "react": "^19.0.0",
