@@ -45,6 +45,14 @@ const VEHICLES = [
 ];
 
 async function main() {
+  // Only seed an empty database, so re-running (e.g. on every deploy) never
+  // clobbers roster edits made in the app.
+  const existing = await prisma.person.count();
+  if (existing > 0) {
+    console.log(`Seed skipped — ${existing} people already exist.`);
+    return;
+  }
+
   for (const p of PEOPLE) {
     const isDriver = !!p.isDriver;
     await prisma.person.upsert({
