@@ -1,0 +1,125 @@
+// DPI Dispatch — data model
+// Postgres (local: Homebrew postgresql@16 | prod: Netlify DB / Neon)
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" for local dev; the rhel target covers Netlify's Linux Lambda runtime.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooled connection for runtime queries
+  directUrl = env("DIRECT_URL")     // unpooled connection for migrations
+}
+
+enum RequestType {
+  SITE_MOBILIZATION
+  SCANNING
+  OCULAR
+  DEMO
+  MEETING
+  AIRPORT_PICKUP
+  AIRPORT_DROPOFF
+  EQUIPMENT_PICKUP
+  EQUIPMENT_DELIVERY
+  ERRAND
+  OTHER
+}
+
+enum RequestStatus {
+  REQUESTED
+  ASSIGNED
+  EN_ROUTE
+  COMPLETED
+  CANCELLED
+}
+
+// Master list of staff. Powers the name picker, driver list, passenger tagging.
+model Person {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  phone       String?
+  email       String?
+  isDriver    Boolean  @default(false)
+  isAdmin     Boolean  @default(false)
+  active      Boolean  @default(true)
+  driverToken String?  @unique // stable link token for the /driver/[token] view
+  createdAt   DateTime @default(now())
+
+  trips              DispatchRequest[]   @relation("DriverTrips")
+  recurringTemplates RecurringTemplate[] @relation("TemplateDriver")
+}
+
+model Vehicle {
+  id       String  @id @default(cuid())
+  label    String // e.g. "Hilux (Grey)"
+  plate    String?
+  type     String? // Pickup, Van, SUV, Motorcycle
+  capacity Int?
+  active   Boolean @default(true)
+
+  trips              DispatchRequest[]
+  recurringTemplates RecurringTemplate[] @relation("TemplateVehicle")
+}
+
+// Core record: carries both the request and its assignment.
+model DispatchRequest {
+  id String @id @default(cuid())
+
+  // --- request side ---
+  requesterName  String
+  serviceDate    DateTime // date of service (stored at 00:00)
+  timeNeeded     String // "HH:MM" 24h — when the requester needs it (start)
+  endTime        String? // "HH:MM" 24h — optional end; blank = quick trip
+  type           RequestType @default(OTHER)
+  pickupLocation String
+  destination    String
+  passengers     String[]    @default([])
+  purpose        String?
+  equipment      String?
+  notes          String?
+
+  // --- assignment side (set by dispatcher) ---
+  driver        Person?  @relation("DriverTrips", fields: [driverId], references: [id])
+  driverId      String?
+  vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
+  vehicleId     String?
+  scheduledTime String? // "HH:MM" 24h — actual dispatched time
+  sequence      Int? // order of stops within a driver's day
+  estDurationMin Int    @default(60) // used for conflict/overlap detection
+
+  status    RequestStatus @default(REQUESTED)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  // generated from a recurring template (so we don't double-generate)
+  templateId String?
+  template   RecurringTemplate? @relation(fields: [templateId], references: [id])
+
+  @@index([serviceDate])
+  @@index([driverId, serviceDate])
+  @@index([status])
+}
+
+// Standing trips (e.g. daily 8:30 Marikina shuttle). Materialized into
+// DispatchRequests via the "Generate standing trips" button.
+model RecurringTemplate {
+  id             String      @id @default(cuid())
+  label          String
+  daysOfWeek     Int[]       @default([]) // 0=Sun .. 6=Sat
+  defaultTime    String // "HH:MM"
+  defaultEndTime String? // optional "HH:MM" end
+  pickupLocation String
+  destination    String
+  passengers     String[]    @default([])
+  type           RequestType @default(OTHER)
+  active         Boolean     @default(true)
+
+  defaultDriver   Person?  @relation("TemplateDriver", fields: [defaultDriverId], references: [id])
+  defaultDriverId String?
+  defaultVehicle   Vehicle? @relation("TemplateVehicle", fields: [defaultVehicleId], references: [id])
+  defaultVehicleId String?
+
+  generated DispatchRequest[]
+}
