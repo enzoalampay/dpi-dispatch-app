@@ -6,3 +6,9 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# The service worker must never be served stale, or push updates won't land.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

@@ -1,5 +1,6 @@
 import "./globals.css";
 import BottomNav from "./components/BottomNav";
+import SWRegister from "./components/SWRegister";
 
 export const metadata = {
   title: "DPI Dispatch",
@@ -24,6 +25,7 @@ export default function RootLayout({ children }) {
       <body>
         {children}
         <BottomNav />
+        <SWRegister />
       </body>
     </html>
   );

@@ -1,45 +1,79 @@
 "use client";
 import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import AppBar from "../components/AppBar";
 import TripRow from "../components/TripRow";
+import PushToggle from "../components/PushToggle";
 import { STATUSES } from "../../lib/constants";
+import { prettyDate } from "../../lib/dates";
+import { buildRequesterMessage, viberDeepLink } from "../../lib/viber";
+import { usePolling } from "../../lib/usePolling";
 
 function TripsInner() {
   const params = useSearchParams();
-  const router = useRouter();
   const justSubmitted = params.get("submitted") === "1";
   const [person, setPerson] = useState("");
   const [trips, setTrips] = useState(null); // null = loading
   const [showLegend, setShowLegend] = useState(false);
+  const [lastMsg, setLastMsg] = useState("");
+  const [toast, setToast] = useState("");
 
   useEffect(() => {
     setPerson(localStorage.getItem("dispatch_person") || "");
-  }, []);
+    if (justSubmitted) {
+      try { setLastMsg(sessionStorage.getItem("dispatch_last_request_msg") || ""); } catch {}
+    }
+  }, [justSubmitted]);
 
-  function load(name) {
-    fetch(`/api/requests?requester=${encodeURIComponent(name)}&limit=50`)
+  function load() {
+    if (!person) return;
+    fetch(`/api/requests?requester=${encodeURIComponent(person)}&limit=50`)
       .then((r) => r.json())
       .then((d) => setTrips(d.requests || []))
       .catch(() => setTrips([]));
   }
+  usePolling(load, 15000, [person]);
 
-  useEffect(() => {
-    if (!person) return;
-    load(person);
-    const id = setInterval(() => load(person), 15000);
-    return () => clearInterval(id);
-  }, [person]);
+  function flash(m) { setToast(m); setTimeout(() => setToast(""), 2000); }
 
+  // iOS clipboard rule: write synchronously in the tap handler, no awaits before it.
+  function copy(msg) {
+    try { navigator.clipboard.writeText(msg); flash("Message copied"); }
+    catch { flash("Copy failed"); }
+  }
+  function copyTrip(t) {
+    copy(buildRequesterMessage({
+      requesterName: t.requesterName || person,
+      dateLabel: prettyDate(t.serviceDate),
+      timeNeeded: t.timeNeeded,
+      endTime: t.endTime,
+      type: t.type,
+      pickupLocation: t.pickupLocation,
+      destination: t.destination,
+      passengers: t.passengers,
+      purpose: t.purpose,
+      baseUrl: window.location.origin,
+    }));
+  }
+
+  // Optimistic cancel: badge flips immediately; roll back + toast on failure.
   async function cancelReq(id) {
     if (!confirm("Cancel this request?")) return;
-    await fetch("/api/requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status: "CANCELLED" }),
-    });
-    load(person);
+    const prev = trips;
+    setTrips((ts) => (ts || []).map((t) => (t.id === id ? { ...t, status: "CANCELLED" } : t)));
+    try {
+      const r = await fetch("/api/requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: "CANCELLED" }),
+      });
+      if (!r.ok) throw new Error();
+      load();
+    } catch {
+      setTrips(prev);
+      flash("Couldn't cancel — try again");
+    }
   }
 
   return (
@@ -58,8 +92,16 @@ function TripsInner() {
               The dispatcher will assign a driver. The badge turns <b>blue</b> when a driver is
               booked for you.
             </span>
+            {lastMsg && (
+              <div className="btn-row" style={{ marginTop: 12 }}>
+                <button className="btn btn-sm" onClick={() => copy(lastMsg)}>Copy message</button>
+                <a className="btn btn-sm btn-accent" href={viberDeepLink(lastMsg)}>Open Viber</a>
+              </div>
+            )}
           </div>
         )}
+
+        <PushToggle role="requester" personName={person} label="Notify me about my trips" />
 
         <div className="card tight" style={{ marginBottom: 14 }}>
           <button className="linkbtn" onClick={() => setShowLegend(!showLegend)}>
@@ -90,17 +132,19 @@ function TripsInner() {
         )}
 
         {(trips || []).map((t) => (
-          <TripRow key={t.id} trip={t} showDriver showDate>
-            {t.driverName && (t.status === "ASSIGNED" || t.status === "EN_ROUTE") && (
+          <TripRow key={t.id} trip={t} showDate>
+            {t.driverName && t.status !== "CANCELLED" && (
               <span className="small muted">Driver: {t.driverName}{t.vehicleLabel ? ` · ${t.vehicleLabel}` : ""}</span>
             )}
             <span style={{ flex: 1 }} />
+            <button className="btn btn-ghost btn-sm" onClick={() => copyTrip(t)}>Copy</button>
             {t.status !== "COMPLETED" && t.status !== "CANCELLED" && (
               <button className="btn btn-danger btn-sm" onClick={() => cancelReq(t.id)}>Cancel</button>
             )}
           </TripRow>
         ))}
       </div>
+      {toast && <div className="toast">{toast}</div>}
     </>
   );
 }

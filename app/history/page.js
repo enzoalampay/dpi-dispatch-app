@@ -87,34 +87,54 @@ export default function HistoryPage() {
         {rows.length === 0 && !loading ? (
           <div className="empty">No dispatches match these filters.</div>
         ) : (
-          <div className="table-wrap">
-            <table className="grid">
-              <thead>
-                <tr>
-                  <th>Date</th><th>Time</th><th>Status</th><th>Type</th>
-                  <th>Requester</th><th>Pickup</th><th>Destination</th>
-                  <th>Passengers</th><th>Driver</th><th>Vehicle</th><th>Purpose</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>{prettyDate(r.serviceDate)}</td>
-                    <td>{r.scheduledTime || r.timeNeeded}</td>
-                    <td><span className={`badge badge-${STATUS_TONE[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
-                    <td>{TYPE_LABEL[r.type] || r.type}</td>
-                    <td>{r.requesterName}</td>
-                    <td>{r.pickupLocation}</td>
-                    <td>{r.destination}</td>
-                    <td>{(r.passengers || []).join(", ")}</td>
-                    <td>{r.driverName || "—"}</td>
-                    <td>{r.vehicleLabel || "—"}</td>
-                    <td>{r.purpose || ""}</td>
+          <>
+            {/* wide screens: full table */}
+            <div className="table-wrap">
+              <table className="grid">
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Time</th><th>Status</th><th>Type</th>
+                    <th>Requester</th><th>Pickup</th><th>Destination</th>
+                    <th>Passengers</th><th>Driver</th><th>Vehicle</th><th>Purpose</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>{prettyDate(r.serviceDate)}</td>
+                      <td>{r.scheduledTime || r.timeNeeded}</td>
+                      <td><span className={`badge badge-${STATUS_TONE[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
+                      <td>{TYPE_LABEL[r.type] || r.type}</td>
+                      <td>{r.requesterName}</td>
+                      <td>{r.pickupLocation}</td>
+                      <td>{r.destination}</td>
+                      <td>{(r.passengers || []).join(", ")}</td>
+                      <td>{r.driverName || "—"}</td>
+                      <td>{r.vehicleLabel || "—"}</td>
+                      <td>{r.purpose || ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ≤640px: stacked record cards (the 11-col table is unreadable on phones) */}
+            <div className="hist-cards">
+              {rows.map((r) => (
+                <div className="hist-card" key={r.id}>
+                  <div className="top">
+                    <span className="when">{prettyDate(r.serviceDate)} · {r.scheduledTime || r.timeNeeded}</span>
+                    <span className={`badge badge-${STATUS_TONE[r.status]}`}>{STATUS_LABEL[r.status]}</span>
+                    <span className="tag">{TYPE_LABEL[r.type] || r.type}</span>
+                  </div>
+                  <div className="route">{r.pickupLocation} → {r.destination}</div>
+                  <div className="kv"><b>By</b> {r.requesterName}{(r.passengers || []).length ? ` · 👤 ${r.passengers.join(", ")}` : ""}</div>
+                  <div className="kv"><b>Driver</b> {r.driverName || "—"}{r.vehicleLabel ? ` · ${r.vehicleLabel}` : ""}</div>
+                  {r.purpose ? <div className="kv"><b>Purpose</b> {r.purpose}</div> : null}
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
       </div>

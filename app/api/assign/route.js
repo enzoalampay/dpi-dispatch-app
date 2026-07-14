@@ -2,6 +2,7 @@ import { prisma } from "../../../lib/db";
 import { requireAdmin, unauthorized } from "../../../lib/admin";
 import { findConflicts } from "../../../lib/conflicts";
 import { shapeRequest } from "../../../lib/serialize";
+import { notifyRequester, notifyDriver } from "../../../lib/push";
 
 export const dynamic = "force-dynamic";
 const INCLUDE = { driver: true, vehicle: true };
@@ -58,6 +59,28 @@ export async function POST(request) {
       },
       include: INCLUDE,
     });
+
+    // Tell the requester a driver is booked, and the driver they have a new trip.
+    // Only when a driver is actually assigned (not on unassign). Best-effort.
+    if (driverId && row.driver) {
+      const when = row.scheduledTime || row.timeNeeded;
+      try {
+        await notifyRequester(row.requesterName, {
+          title: "DPI Dispatch",
+          body: `Driver assigned: ${row.driver.name} · ${when}`,
+          url: "/trips",
+          tag: row.id,
+        });
+        if (row.driver.driverToken) {
+          await notifyDriver(row.driver.name, {
+            title: "DPI Dispatch — new trip",
+            body: `${when} · ${row.pickupLocation} → ${row.destination}`,
+            url: `/driver/${row.driver.driverToken}`,
+            tag: row.id,
+          });
+        }
+      } catch (e) { /* best-effort */ }
+    }
     return Response.json({ request: shapeRequest(row), forced: !!b.force });
   } catch (e) {
     return Response.json({ error: String(e.message || e) }, { status: 500 });

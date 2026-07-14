@@ -4,7 +4,7 @@ import { fmtRange } from "../../lib/time";
 import { todayYMD } from "../../lib/dates";
 
 const HOUR_H = 56;
-const MIN_EVENT_H = 26;
+const MIN_EVENT_H = 40; // usable touch target for short trips
 
 const TONE = {
   REQUESTED: "var(--grey-bg)",

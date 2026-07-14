@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppBar from "../components/AppBar";
 import AdminGate from "../components/AdminGate";
 import TripRow from "../components/TripRow";
+import PushToggle from "../components/PushToggle";
 import DayCalendar, { CalendarLegend } from "../components/DayCalendar";
 import { REQUEST_TYPES, DURATION_OPTIONS, TYPE_LABEL } from "../../lib/constants";
 import { todayYMD, prettyDate, addDaysYMD } from "../../lib/dates";
 import { buildDriverMessage, viberDeepLink } from "../../lib/viber";
+import { usePolling } from "../../lib/usePolling";
 
 const timeKey = (t) => t.scheduledTime || t.timeNeeded || "99:99";
 
@@ -17,13 +19,14 @@ export default function DispatchPage() {
 
 function Board({ passcode }) {
   const [date, setDate] = useState(todayYMD());
-  const [requests, setRequests] = useState([]);
+  const [requests, setRequests] = useState(null); // null = first load in progress
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [assignFor, setAssignFor] = useState(null);
   const [view, setViewState] = useState("list");
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
+  const [pending, setPending] = useState({}); // request ids with an in-flight status change
 
   // remember the dispatcher's preferred view on this device
   useEffect(() => {
@@ -50,16 +53,14 @@ function Board({ passcode }) {
     fetch("/api/people?drivers=1").then((r) => r.json()).then((d) => setDrivers(d.people || [])).catch(() => {});
     fetch("/api/vehicles").then((r) => r.json()).then((d) => setVehicles(d.vehicles || [])).catch(() => {});
   }, []);
-  useEffect(() => {
-    loadRequests();
-    const id = setInterval(loadRequests, 15000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  // clear last day's trips immediately on date change so nothing stale flashes
+  useEffect(() => { setRequests(null); }, [date]);
+  usePolling(loadRequests, 15000, [date]);
 
   const driverByToken = useMemo(() => Object.fromEntries(drivers.map((d) => [d.id, d])), [drivers]);
 
-  const active = requests.filter((r) => r.status !== "CANCELLED");
+  const loading = requests === null;
+  const active = (requests || []).filter((r) => r.status !== "CANCELLED");
   const unassigned = active.filter((r) => !r.driverId).sort((a, b) => timeKey(a).localeCompare(timeKey(b)));
   const assigned = active.filter((r) => r.driverId);
 
@@ -87,13 +88,26 @@ function Board({ passcode }) {
     loadRequests();
   }
 
-  async function setStatus(id, status) {
-    await adminFetch("/api/requests", { method: "PATCH", body: JSON.stringify({ id, status }) });
-    loadRequests();
+  // Optimistic: apply `patch` to the local row now, disable the button while the
+  // request is in flight, roll back + toast on failure.
+  async function mutate(id, patch, body) {
+    const prev = requests;
+    setRequests((rs) => (rs || []).map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setPending((p) => ({ ...p, [id]: true }));
+    try {
+      const r = await adminFetch("/api/requests", { method: "PATCH", body: JSON.stringify(body) });
+      if (!r.ok) throw new Error();
+      loadRequests();
+    } catch {
+      setRequests(prev);
+      flash("Couldn't update — try again");
+    } finally {
+      setPending((p) => { const n = { ...p }; delete n[id]; return n; });
+    }
   }
-  async function unassign(id) {
-    await adminFetch("/api/requests", { method: "PATCH", body: JSON.stringify({ id, unassign: true }) });
-    loadRequests();
+  function setStatus(id, status) { return mutate(id, { status }, { id, status }); }
+  function unassign(id) {
+    return mutate(id, { driverId: null, driverName: null, scheduledTime: null, status: "REQUESTED" }, { id, unassign: true });
   }
 
   function shareViber(group) {
@@ -120,19 +134,22 @@ function Board({ passcode }) {
         {error && <div className="pagetitle"><div className="error">{error}</div></div>}
 
         <div className="daynav">
-          <button className="btn btn-sm" onClick={() => setDate(addDaysYMD(date, -1))}>‹</button>
+          <button className="btn btn-sm btn-icon" onClick={() => setDate(addDaysYMD(date, -1))}>‹</button>
           <div className="label">{prettyDate(date)}{date === todayYMD() ? " · Today" : ""}</div>
-          <button className="btn btn-sm" onClick={() => setDate(addDaysYMD(date, 1))}>›</button>
+          <button className="btn btn-sm btn-icon" onClick={() => setDate(addDaysYMD(date, 1))}>›</button>
           <button className="btn btn-sm" onClick={() => setDate(todayYMD())}>Today</button>
           <button className="btn btn-sm btn-primary" onClick={generate}>+ Standing trips</button>
-          <span style={{ flex: 1 }} />
           <div className="tabs" style={{ margin: 0, maxWidth: 200 }}>
             <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button>
             <button className={view === "timeline" ? "active" : ""} onClick={() => setView("timeline")}>Timeline</button>
           </div>
         </div>
 
-        {view === "timeline" && (
+        <PushToggle role="dispatcher" label="Notify me of new requests" />
+
+        {loading && <div className="empty">Loading schedule…</div>}
+
+        {!loading && view === "timeline" && (
           <div style={{ marginBottom: 18 }}>
             <CalendarLegend />
             <DayCalendar date={date} drivers={drivers} requests={requests} includeUnassigned onTripClick={(t) => setAssignFor(t)} />
@@ -140,7 +157,7 @@ function Board({ passcode }) {
           </div>
         )}
 
-        {view === "list" && (
+        {!loading && view === "list" && (
         <div className="board">
           {/* Unassigned queue */}
           <div>
@@ -177,9 +194,9 @@ function Board({ passcode }) {
                     {t.vehicleLabel ? <span className="tag">{t.vehicleLabel}</span> : <span className="tag" style={{ color: "var(--accent)" }}>no vehicle</span>}
                     <span style={{ flex: 1 }} />
                     <button className="btn btn-sm" onClick={() => setAssignFor(t)}>Edit</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => unassign(t.id)}>Unassign</button>
-                    {t.status === "ASSIGNED" && <button className="btn btn-sm" onClick={() => setStatus(t.id, "EN_ROUTE")}>Start</button>}
-                    {t.status === "EN_ROUTE" && <button className="btn btn-sm" onClick={() => setStatus(t.id, "COMPLETED")}>Done</button>}
+                    <button className="btn btn-sm btn-ghost" onClick={() => unassign(t.id)} disabled={pending[t.id]}>Unassign</button>
+                    {t.status === "ASSIGNED" && <button className="btn btn-sm" onClick={() => setStatus(t.id, "EN_ROUTE")} disabled={pending[t.id]}>Start</button>}
+                    {t.status === "EN_ROUTE" && <button className="btn btn-sm" onClick={() => setStatus(t.id, "COMPLETED")} disabled={pending[t.id]}>Done</button>}
                   </TripRow>
                 ))}
               </div>
@@ -212,6 +229,13 @@ function AssignModal({ request, drivers, vehicles, adminFetch, onClose, onDone }
   const [conflicts, setConflicts] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const warnRef = useRef(null);
+
+  // the 409 warning renders above the fold — pull it into view so the user sees
+  // it before the "Assign anyway" button they were reaching for.
+  useEffect(() => {
+    if (conflicts && warnRef.current) warnRef.current.scrollIntoView({ block: "nearest" });
+  }, [conflicts]);
 
   async function submit(force) {
     if (!driverId) return setErr("Pick a driver.");
@@ -249,7 +273,7 @@ function AssignModal({ request, drivers, vehicles, adminFetch, onClose, onDone }
         {err && <div className="error" style={{ marginTop: 12 }}>{err}</div>}
 
         {conflicts && (
-          <div className="warn" style={{ marginTop: 12 }}>
+          <div className="warn" ref={warnRef} style={{ marginTop: 12 }}>
             <strong>Double-booking:</strong> this driver/vehicle already has:
             <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
               {allConflicts.map((c) => (
@@ -290,7 +314,12 @@ function AssignModal({ request, drivers, vehicles, adminFetch, onClose, onDone }
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <span style={{ flex: 1 }} />
           {conflicts ? (
-            <button className="btn btn-accent" onClick={() => submit(true)} disabled={busy}>Assign anyway</button>
+            <>
+              <span className="small muted" style={{ alignSelf: "center" }}>
+                {allConflicts.length} overlap{allConflicts.length === 1 ? "" : "s"} ·
+              </span>
+              <button className="btn btn-accent" onClick={() => submit(true)} disabled={busy}>Assign anyway</button>
+            </>
           ) : (
             <button className="btn btn-primary" onClick={() => submit(false)} disabled={busy}>{busy ? "Saving…" : "Assign"}</button>
           )}

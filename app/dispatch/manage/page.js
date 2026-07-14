@@ -74,8 +74,8 @@ function People({ adminFetch, flash }) {
         {err && <div className="error">{err}</div>}
         <div className="field"><input type="text" placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} /></div>
         <div className="btn-row" style={{ alignItems: "center" }}>
-          <label className="small"><input type="checkbox" checked={isDriver} onChange={(e) => setDriver(e.target.checked)} /> Driver</label>
-          <label className="small"><input type="checkbox" checked={isAdmin} onChange={(e) => setAdmin(e.target.checked)} /> Admin</label>
+          <label className="small checkrow"><input type="checkbox" checked={isDriver} onChange={(e) => setDriver(e.target.checked)} /> Driver</label>
+          <label className="small checkrow"><input type="checkbox" checked={isAdmin} onChange={(e) => setAdmin(e.target.checked)} /> Admin</label>
           <span style={{ flex: 1 }} />
           <button className="btn btn-primary btn-sm" onClick={add}>Add</button>
         </div>

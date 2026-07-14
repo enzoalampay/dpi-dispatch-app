@@ -2,6 +2,7 @@ import { prisma } from "../../../lib/db";
 import { ymdToUTC, addDaysYMD } from "../../../lib/dates";
 import { shapeRequest } from "../../../lib/serialize";
 import { durationFrom } from "../../../lib/time";
+import { notifyDispatchers, notifyRequester } from "../../../lib/push";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,16 @@ export async function POST(request) {
       },
       include: INCLUDE,
     });
+    // Alert dispatchers. Awaited inline (the Lambda freezes after the response
+    // returns) but wrapped so a push failure never fails the request.
+    try {
+      await notifyDispatchers({
+        title: "DPI Dispatch — new request",
+        body: `${row.requesterName} · ${row.timeNeeded} · ${row.pickupLocation} → ${row.destination}`,
+        url: `/dispatch?date=${b.serviceDate}`,
+        tag: row.id,
+      });
+    } catch (e) { /* best-effort */ }
     return Response.json({ request: shapeRequest(row) });
   } catch (e) {
     return Response.json({ error: String(e.message || e) }, { status: 500 });
@@ -119,7 +130,23 @@ export async function PATCH(request) {
       data.status = "REQUESTED";
     }
 
+    // Only on the real transition into EN_ROUTE (driver tapped Start) do we tell
+    // the requester "on the way". Read the prior status first so re-saves don't re-notify.
+    let prior = null;
+    if (b.status === "EN_ROUTE") prior = await prisma.dispatchRequest.findUnique({ where: { id: b.id } });
+
     const row = await prisma.dispatchRequest.update({ where: { id: b.id }, data, include: INCLUDE });
+
+    try {
+      if (b.status === "EN_ROUTE" && prior && prior.status !== "EN_ROUTE") {
+        await notifyRequester(row.requesterName, {
+          title: "DPI Dispatch",
+          body: "Your driver is on the way.",
+          url: "/trips",
+          tag: row.id,
+        });
+      }
+    } catch (e) { /* best-effort */ }
     return Response.json({ request: shapeRequest(row) });
   } catch (e) {
     return Response.json({ error: String(e.message || e) }, { status: 500 });

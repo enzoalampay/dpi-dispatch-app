@@ -2,9 +2,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import AppBar from "../../components/AppBar";
+import PushToggle from "../../components/PushToggle";
 import { STATUS_TONE, STATUS_LABEL, TYPE_LABEL } from "../../../lib/constants";
 import { todayYMD, prettyDate, addDaysYMD } from "../../../lib/dates";
 import { fmtRange } from "../../../lib/time";
+import { usePolling } from "../../../lib/usePolling";
 
 function mapLink(place) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
@@ -17,6 +19,8 @@ export default function DriverPage() {
   const [trips, setTrips] = useState([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [pending, setPending] = useState({}); // trip ids with an in-flight status change
+  const [toast, setToast] = useState("");
 
   function load() {
     fetch(`/api/driver/${token}?date=${date}`)
@@ -31,38 +35,49 @@ export default function DriverPage() {
       .finally(() => setLoaded(true));
   }
 
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 20000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, date]);
+  usePolling(load, 20000, [token, date]);
 
   // remember this driver on this device (powers More → My driver schedule)
   useEffect(() => {
     if (driver && token) localStorage.setItem("dispatch_driver_token", token);
   }, [driver, token]);
 
+  // Optimistic: flip the badge + button locally now, roll back + toast on failure.
   async function setStatus(id, status) {
-    await fetch("/api/requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    load();
+    const prev = trips;
+    setTrips((ts) => ts.map((t) => (t.id === id ? { ...t, status } : t)));
+    setPending((p) => ({ ...p, [id]: true }));
+    try {
+      const r = await fetch("/api/requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
+      });
+      if (!r.ok) throw new Error();
+      load();
+    } catch {
+      setTrips(prev);
+      setToast("Couldn't update — try again");
+      setTimeout(() => setToast(""), 2400);
+    } finally {
+      setPending((p) => { const n = { ...p }; delete n[id]; return n; });
+    }
   }
 
   return (
     <>
-      <AppBar title="My trips" href="#" right={driver ? <span className="who">{driver.name}</span> : null} />
+      <AppBar title="My trips" right={driver ? <span className="who">{driver.name}</span> : null} />
       <div className="wrap">
         {error && <div className="pagetitle"><div className="error">{error}</div></div>}
 
         <div className="daynav">
-          <button className="btn btn-sm" onClick={() => setDate(addDaysYMD(date, -1))}>‹ Prev</button>
+          <button className="btn btn-sm btn-icon" onClick={() => setDate(addDaysYMD(date, -1))}>‹ Prev</button>
           <div className="label">{prettyDate(date)}{date === todayYMD() ? " · Today" : ""}</div>
-          <button className="btn btn-sm" onClick={() => setDate(addDaysYMD(date, 1))}>Next ›</button>
+          <button className="btn btn-sm btn-icon" onClick={() => setDate(addDaysYMD(date, 1))}>Next ›</button>
+          <button className="btn btn-sm" onClick={() => setDate(todayYMD())}>Today</button>
         </div>
+
+        <PushToggle role="driver" personName={driver?.name} label="Notify me of new trips" />
 
         {loaded && trips.length === 0 && !error && (
           <div className="empty">No trips for this day.</div>
@@ -91,13 +106,13 @@ export default function DriverPage() {
               <a className="btn btn-sm" href={mapLink(t.destination)} target="_blank" rel="noreferrer">📍 Drop-off</a>
               <span className="spacer" style={{ flex: 1 }} />
               {t.status === "ASSIGNED" && (
-                <button className="btn btn-sm btn-primary" onClick={() => setStatus(t.id, "EN_ROUTE")}>Start trip</button>
+                <button className="btn btn-sm btn-primary" onClick={() => setStatus(t.id, "EN_ROUTE")} disabled={pending[t.id]}>Start trip</button>
               )}
               {t.status === "EN_ROUTE" && (
-                <button className="btn btn-sm btn-primary" onClick={() => setStatus(t.id, "COMPLETED")}>Mark done</button>
+                <button className="btn btn-sm btn-primary" onClick={() => setStatus(t.id, "COMPLETED")} disabled={pending[t.id]}>Mark done</button>
               )}
               {t.status === "COMPLETED" && (
-                <button className="btn btn-sm btn-ghost" onClick={() => setStatus(t.id, "EN_ROUTE")}>Undo</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => setStatus(t.id, "EN_ROUTE")} disabled={pending[t.id]}>Undo</button>
               )}
             </div>
           </div>
@@ -107,6 +122,7 @@ export default function DriverPage() {
           This is your personal schedule. Find it anytime: <b>More → My driver schedule</b>.
         </div>
       </div>
+      {toast && <div className="toast">{toast}</div>}
     </>
   );
 }

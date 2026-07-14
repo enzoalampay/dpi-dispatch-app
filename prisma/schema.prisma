@@ -123,3 +123,18 @@ model RecurringTemplate {
 
   generated DispatchRequest[]
 }
+
+// Web Push subscriptions. One browser endpoint can hold multiple roles
+// (e.g. someone who is both dispatcher and requester), hence the composite unique.
+model PushSubscription {
+  id         String   @id @default(cuid())
+  endpoint   String
+  p256dh     String
+  auth       String
+  role       String // "dispatcher" | "requester" | "driver"
+  personName String?
+  createdAt  DateTime @default(now())
+
+  @@unique([endpoint, role])
+  @@index([role, personName])
+}

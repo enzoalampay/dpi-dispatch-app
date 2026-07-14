@@ -106,7 +106,7 @@ export default function GuidePage() {
         </div>
 
         <div className="guide-section">
-          <h2>Put it on your phone</h2>
+          <h2 id="install">Put it on your phone</h2>
           <div className="card">
             <p className="small" style={{ marginTop: 0 }}>
               <b>Android (Chrome):</b> open this app → tap the <b>⋮</b> menu → <b>Add to Home
@@ -115,6 +115,28 @@ export default function GuidePage() {
             <p className="small" style={{ marginBottom: 0 }}>
               <b>iPhone (Safari):</b> open this app → tap the <b>Share</b> button → <b>Add to Home
               Screen</b> → Add.
+            </p>
+            <p className="small muted" style={{ marginBottom: 0, marginTop: 10 }}>
+              On iPhone this step is required before you can <a className="linkbtn" href="#notifications">turn on notifications</a>.
+            </p>
+          </div>
+        </div>
+
+        <div className="guide-section">
+          <h2 id="notifications">Turn on notifications</h2>
+          <div className="card">
+            <p className="small" style={{ marginTop: 0 }}>
+              Get a pop-up when something needs you: the <b>dispatcher</b> when a new request comes
+              in, <b>requesters</b> when a driver is assigned or on the way, <b>drivers</b> when a
+              new trip is booked.
+            </p>
+            <p className="small" style={{ marginBottom: 0 }}>
+              <b>Android:</b> tap the <b>🔔 Turn on</b> button on your page (My trips, your driver
+              page, or the Dispatcher board) and allow notifications.
+            </p>
+            <p className="small" style={{ marginBottom: 0, marginTop: 8 }}>
+              <b>iPhone:</b> first <b>Add to Home Screen</b> (above), open the app from the Home
+              Screen, then tap <b>🔔 Turn on</b>. iPhone only allows notifications for installed apps.
             </p>
           </div>
         </div>

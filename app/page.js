@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import AppBar from "./components/AppBar";
 import PassengerPicker from "./components/PassengerPicker";
 import { REQUEST_TYPES } from "../lib/constants";
-import { todayYMD, addDaysYMD } from "../lib/dates";
+import { todayYMD, addDaysYMD, prettyDate } from "../lib/dates";
 import { toMinutes, overlaps } from "../lib/conflicts";
 import { minToHHMM, durationFrom, durationLabel } from "../lib/time";
+import { buildRequesterMessage } from "../lib/viber";
 
 export default function RequestPage() {
   const router = useRouter();
@@ -101,6 +102,21 @@ export default function RequestPage() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Could not send the request");
+      // Precompute the dispatcher alert from form state (no extra fetch) and stash it
+      // for the /trips success card's Copy / Open Viber buttons.
+      const msg = buildRequesterMessage({
+        requesterName: person,
+        dateLabel: prettyDate(form.serviceDate),
+        timeNeeded: form.timeNeeded,
+        endTime: form.endTime,
+        type: form.type,
+        pickupLocation: form.pickupLocation.trim(),
+        destination: form.destination.trim(),
+        passengers: form.passengers,
+        purpose: form.purpose,
+        baseUrl: window.location.origin,
+      });
+      try { sessionStorage.setItem("dispatch_last_request_msg", msg); } catch {}
       router.push("/trips?submitted=1");
     } catch (e) {
       setError(e.message);

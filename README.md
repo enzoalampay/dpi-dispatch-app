@@ -40,6 +40,11 @@ Local dev uses the Postgres already running via Homebrew. `npm run db:seed` prin
 | `DATABASE_URL` | Postgres connection string. Prod value is auto-set by `netlify db init`. |
 | `ADMIN_PASSCODE` | Shared passcode that gates `/dispatch` and master-data edits. |
 | `NEXT_PUBLIC_BASE_URL` | Base URL for driver links in Viber messages (driver links also use the live origin at runtime). |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web Push public key (safe to expose). Generate once: `npx web-push generate-vapid-keys`. |
+| `VAPID_PRIVATE_KEY` | Web Push private key (server only). Never rotate — rotating drops every existing subscription. |
+
+Push notifications are optional: with the two VAPID vars absent, the app runs normally and simply
+sends no notifications (the server guards on `pushEnabled()`).
 
 ## Routes
 
